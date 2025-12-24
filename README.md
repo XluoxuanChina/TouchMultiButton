@@ -1,7 +1,7 @@
 # TouchMultiButton
 
 <div align="center">
-  <img width="150" height="150" alt="Button Logo" src="https://github.com/user-attachments/assets/c303ff66-61b1-4eca-a668-2f9b90ae1de6" />
+  <img width="500" height="500" alt="Button Logo" src="https://github.com/user-attachments/assets/c303ff66-61b1-4eca-a668-2f9b90ae1de6" />
 </div>
 
 <br>
@@ -12,10 +12,18 @@
 
 ## 📸 应用截图
 
-| 截图展示1 | 截图展示2 | 截图展示3 |
-| :---: | :---: | :---: |
-| ![image7](https://github.com/user-attachments/assets/0175fcfd-7146-440e-a028-6c1d0b175cb5) | ![Snipaste_2025-12-24_17-41-03](https://github.com/user-attachments/assets/6d8c9c17-51e6-45f7-9070-387a37ef52a2) | ![Snipaste_2025-12-24_17-43-23](https://github.com/user-attachments/assets/09d35f97-8cf7-4beb-bbd4-7d6e757f8077) |
+### 核心功能展示（纵向排列）
+| 截图展示1 |
+| :---: |
+| ![image7](https://github.com/user-attachments/assets/0175fcfd-7146-440e-a028-6c1d0b175cb5) |
+| 截图展示2 |
+| :---: |
+| ![Snipaste_2025-12-24_17-41-03](https://github.com/user-attachments/assets/6d8c9c17-51e6-45f7-9070-387a37ef52a2) |
+| 截图展示3 |
+| :---: |
+| ![Snipaste_2025-12-24_17-43-23](https://github.com/user-attachments/assets/09d35f97-8cf7-4beb-bbd4-7d6e757f8077) |
 
+### 补充功能展示（横向排列）
 | 截图展示4 | 截图展示5 |
 | :---: | :---: |
 | <img width="461" height="314" alt="Snipaste_2025-12-24_17-48-41" src="https://github.com/user-attachments/assets/3c15606f-9e5d-49b4-a00d-8610672657df" /> | ![Snipaste_2025-12-24_17-58-03](https://github.com/user-attachments/assets/e16a5956-64b2-422a-9920-7946f43bca9b) |
