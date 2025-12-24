@@ -1,0 +1,213 @@
+{
+  "buttons": [
+    {
+      "id": "ab594943-8625-4c06-b922-32b77e28466a",
+      "label": "←",
+      "shortcut": "left",
+      "position": [
+        15,
+        1048
+      ],
+      "size": [
+        150,
+        150
+      ],
+      "opacity": 0.5,
+      "color": "#ffffff",
+      "textColor": "#000000",
+      "borderColor": "#ffffff",
+      "fontSize": 48,
+      "position_lock": true
+    },
+    {
+      "id": "c56d1b61-fe83-4fb7-a49f-39adeb6fed71",
+      "label": "→",
+      "shortcut": "right",
+      "position": [
+        315,
+        1046
+      ],
+      "size": [
+        150,
+        150
+      ],
+      "opacity": 0.5,
+      "color": "#ffffff",
+      "textColor": "#000000",
+      "borderColor": "#ffffff",
+      "fontSize": 48,
+      "position_lock": true
+    },
+    {
+      "id": "c8128308-b666-4ba6-92d1-9c3731d45879",
+      "label": "↑",
+      "shortcut": "up",
+      "position": [
+        166,
+        895
+      ],
+      "size": [
+        150,
+        150
+      ],
+      "opacity": 0.5,
+      "color": "#ffffff",
+      "textColor": "#000000",
+      "borderColor": "#ffffff",
+      "fontSize": 48,
+      "position_lock": true
+    },
+    {
+      "id": "729ff090-a870-4cd1-81a2-47591aa77fb6",
+      "label": "↓",
+      "shortcut": "down",
+      "position": [
+        167,
+        1201
+      ],
+      "size": [
+        150,
+        150
+      ],
+      "opacity": 0.5,
+      "color": "#ffffff",
+      "textColor": "#000000",
+      "borderColor": "#ffffff",
+      "fontSize": 48,
+      "position_lock": true
+    },
+    {
+      "id": "727a9d77-6ad1-4066-b34c-4834ce86b684",
+      "label": "LD",
+      "shortcut": "left+down",
+      "position": [
+        40,
+        1206
+      ],
+      "size": [
+        120,
+        120
+      ],
+      "opacity": 0.5,
+      "color": "#ffffff",
+      "textColor": "#000000",
+      "borderColor": "#ffffff",
+      "fontSize": 24,
+      "position_lock": true
+    },
+    {
+      "id": "a4418b5c-a86f-4077-9aef-68a86efb096f",
+      "label": "RD",
+      "shortcut": "right+down",
+      "position": [
+        323,
+        1203
+      ],
+      "size": [
+        120,
+        120
+      ],
+      "opacity": 0.5,
+      "color": "#ffffff",
+      "textColor": "#000000",
+      "borderColor": "#ffffff",
+      "fontSize": 24,
+      "position_lock": true
+    },
+    {
+      "id": "2f25769c-3c94-4a3e-9b50-63a0ee8996a2",
+      "label": "LU",
+      "shortcut": "left+up",
+      "position": [
+        41,
+        920
+      ],
+      "size": [
+        120,
+        120
+      ],
+      "opacity": 0.5,
+      "color": "#ffffff",
+      "textColor": "#000000",
+      "borderColor": "#ffffff",
+      "fontSize": 24,
+      "position_lock": true
+    },
+    {
+      "id": "f0c78626-2246-4954-99f5-de0fbb1e4dc4",
+      "label": "RU",
+      "shortcut": "right+up",
+      "position": [
+        323,
+        916
+      ],
+      "size": [
+        120,
+        120
+      ],
+      "opacity": 0.5,
+      "color": "#ffffff",
+      "textColor": "#000000",
+      "borderColor": "#ffffff",
+      "fontSize": 24,
+      "position_lock": true
+    },
+    {
+      "id": "0fefefc5-8582-48ca-ac0b-4f89f06ccf62",
+      "label": "X",
+      "shortcut": "x",
+      "position": [
+        2395,
+        961
+      ],
+      "size": [
+        150,
+        150
+      ],
+      "opacity": 0.5,
+      "color": "#ffffff",
+      "textColor": "#000000",
+      "borderColor": "#ffffff",
+      "fontSize": 48,
+      "position_lock": true
+    },
+    {
+      "id": "cda76bf7-828d-42b3-9c41-3cb4f72d67a1",
+      "label": "Z",
+      "shortcut": "Z",
+      "position": [
+        2394,
+        1154
+      ],
+      "size": [
+        150,
+        150
+      ],
+      "opacity": 0.5,
+      "color": "#ffffff",
+      "textColor": "#000000",
+      "borderColor": "#ffffff",
+      "fontSize": 48,
+      "position_lock": true
+    },
+    {
+      "id": "f5afda42-d4e1-4559-8df8-9c1e9beb97a5",
+      "label": "Shift",
+      "shortcut": "shift",
+      "position": [
+        2393,
+        776
+      ],
+      "size": [
+        150,
+        150
+      ],
+      "opacity": 0.5,
+      "color": "#ffffff",
+      "textColor": "#000000",
+      "borderColor": "#ffffff",
+      "fontSize": 48,
+      "position_lock": true
+    }
+  ]
+}

@@ -1,0 +1,141 @@
+{
+  "buttons": [
+    {
+      "id": "ab594943-8625-4c06-b922-32b77e28466a",
+      "label": "←",
+      "shortcut": "left",
+      "position": [
+        98,
+        1376
+      ],
+      "size": [
+        150,
+        150
+      ],
+      "opacity": 0.5,
+      "color": "#ffffff",
+      "textColor": "#000000",
+      "borderColor": "#ffffff",
+      "fontSize": 48,
+      "position_lock": true
+    },
+    {
+      "id": "6e0fd600-b567-4388-af4e-3a3257228414",
+      "label": " ",
+      "shortcut": "space",
+      "position": [
+        277,
+        1375
+      ],
+      "size": [
+        150,
+        150
+      ],
+      "opacity": 0.5,
+      "color": "#ffffff",
+      "textColor": "#000000",
+      "borderColor": "#ffffff",
+      "fontSize": 24,
+      "position_lock": true
+    },
+    {
+      "id": "c56d1b61-fe83-4fb7-a49f-39adeb6fed71",
+      "label": "→",
+      "shortcut": "right",
+      "position": [
+        457,
+        1373
+      ],
+      "size": [
+        150,
+        150
+      ],
+      "opacity": 0.5,
+      "color": "#ffffff",
+      "textColor": "#000000",
+      "borderColor": "#ffffff",
+      "fontSize": 48,
+      "position_lock": true
+    },
+    {
+      "id": "dee8b331-03a6-4f52-8aff-8cd2286d2576",
+      "label": "+",
+      "fontFamily": "微软雅黑",
+      "shortcut": "volume up",
+      "position": [
+        0,
+        277
+      ],
+      "size": [
+        100,
+        100
+      ],
+      "opacity": 0.5,
+      "color": "#ffffff",
+      "textColor": "#000000",
+      "borderColor": "#000000",
+      "fontSize": 40,
+      "position_lock": true
+    },
+    {
+      "id": "7a214995-56ed-4116-8085-243d4de5edd8",
+      "label": "-",
+      "fontFamily": "微软雅黑",
+      "shortcut": "volume down",
+      "position": [
+        0,
+        401
+      ],
+      "size": [
+        100,
+        100
+      ],
+      "opacity": 0.5,
+      "color": "#ffffff",
+      "textColor": "#000000",
+      "borderColor": "#000000",
+      "fontSize": 40,
+      "position_lock": true
+    },
+    {
+      "id": "61c29081-a685-4eed-a13f-7fd897f800f0",
+      "label": "PrtSc",
+      "fontFamily": "微软雅黑",
+      "shortcut": "F1",
+      "position": [
+        0,
+        570
+      ],
+      "size": [
+        100,
+        100
+      ],
+      "opacity": 0.5,
+      "color": "#ff7274",
+      "textColor": "#000000",
+      "borderColor": "#000000",
+      "fontSize": 20,
+      "position_lock": true
+    },
+    {
+      "id": "22620d50-a92d-49ae-9326-332a389d6c80",
+      "label": "PrtSc",
+      "fontFamily": "微软雅黑",
+      "shortcut": "F1",
+      "position": [
+        2460,
+        191
+      ],
+      "size": [
+        100,
+        100
+      ],
+      "opacity": 0.5,
+      "color": "#ff7274",
+      "textColor": "#000000",
+      "borderColor": "#000000",
+      "fontSize": 20,
+      "position_lock": true
+    }
+  ]
+}

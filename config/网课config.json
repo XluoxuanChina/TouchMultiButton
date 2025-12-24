@@ -1,0 +1,61 @@
+{
+  "buttons": [
+    {
+      "id": "ab594943-8625-4c06-b922-32b77e28466a",
+      "label": "\u2190",
+      "shortcut": "left",
+      "position": [
+        67,
+        1138
+      ],
+      "size": [
+        150,
+        150
+      ],
+      "opacity": 0.5,
+      "color": "#ffffff",
+      "textColor": "#000000",
+      "borderColor": "#ffffff",
+      "fontSize": 48,
+      "position_lock": true
+    },
+    {
+      "id": "6e0fd600-b567-4388-af4e-3a3257228414",
+      "label": " ",
+      "shortcut": "space",
+      "position": [
+        237,
+        1139
+      ],
+      "size": [
+        150,
+        150
+      ],
+      "opacity": 0.5,
+      "color": "#ffffff",
+      "textColor": "#000000",
+      "borderColor": "#ffffff",
+      "fontSize": 24,
+      "position_lock": true
+    },
+    {
+      "id": "c56d1b61-fe83-4fb7-a49f-39adeb6fed71",
+      "label": "\u2192",
+      "shortcut": "right",
+      "position": [
+        403,
+        1140
+      ],
+      "size": [
+        150,
+        150
+      ],
+      "opacity": 0.5,
+      "color": "#ffffff",
+      "textColor": "#000000",
+      "borderColor": "#ffffff",
+      "fontSize": 48,
+      "position_lock": true
+    }
+  ]
+}
