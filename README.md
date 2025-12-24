@@ -1,16 +1,28 @@
 # TouchMultiButton
-<img width="2048" height="2048" alt="Button" src="https://github.com/user-attachments/assets/c303ff66-61b1-4eca-a668-2f9b90ae1de6" />
-一个基于PyQt5的多功能触摸按钮应用，支持自定义快捷键和可拖拽按钮布局。
 
-![image7](https://github.com/user-attachments/assets/0175fcfd-7146-440e-a028-6c1d0b175cb5)
-![Snipaste_2025-12-24_17-41-03](https://github.com/user-attachments/assets/6d8c9c17-51e6-45f7-9070-387a37ef52a2)
-![Snipaste_2025-12-24_17-43-23](https://github.com/user-attachments/assets/09d35f97-8cf7-4beb-bbd4-7d6e757f8077)
-<img width="461" height="314" alt="Snipaste_2025-12-24_17-48-41" src="https://github.com/user-attachments/assets/3c15606f-9e5d-49b4-a00d-8610672657df" />
-![Snipaste_2025-12-24_17-58-03](https://github.com/user-attachments/assets/e16a5956-64b2-422a-9920-7946f43bca9b)
+<div align="center">
+  <img width="150" height="150" alt="Button Logo" src="https://github.com/user-attachments/assets/c303ff66-61b1-4eca-a668-2f9b90ae1de6" />
+</div>
 
+<br>
 
-## 功能特性
+一个基于 **PyQt5** 开发的多功能触摸按钮应用，核心支持自定义快捷键配置与可拖拽按钮布局，满足个性化操作与界面排版需求。
 
+---
+
+## 📸 应用截图
+
+| 截图展示1 | 截图展示2 | 截图展示3 |
+| :---: | :---: | :---: |
+| ![image7](https://github.com/user-attachments/assets/0175fcfd-7146-440e-a028-6c1d0b175cb5) | ![Snipaste_2025-12-24_17-41-03](https://github.com/user-attachments/assets/6d8c9c17-51e6-45f7-9070-387a37ef52a2) | ![Snipaste_2025-12-24_17-43-23](https://github.com/user-attachments/assets/09d35f97-8cf7-4beb-bbd4-7d6e757f8077) |
+
+| 截图展示4 | 截图展示5 |
+| :---: | :---: |
+| <img width="461" height="314" alt="Snipaste_2025-12-24_17-48-41" src="https://github.com/user-attachments/assets/3c15606f-9e5d-49b4-a00d-8610672657df" /> | ![Snipaste_2025-12-24_17-58-03](https://github.com/user-attachments/assets/e16a5956-64b2-422a-9920-7946f43bca9b) |
+
+---
+
+## ✨ 功能特性
 - 🎯 **可拖拽按钮**：按钮可以在屏幕上自由拖动定位
 - ⌨️ **自定义快捷键**：每个按钮可以绑定不同的键盘快捷键
 - ⚙️ **多配置支持**：支持多个配置文件，方便不同场景使用
