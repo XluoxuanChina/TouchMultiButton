@@ -1,806 +1,840 @@
+import sys
+import os
+import json
+import copy
+import uuid
 from PyQt5.QtWidgets import (
     QDialog, QVBoxLayout, QFormLayout, QHBoxLayout,
     QLineEdit, QSpinBox, QDoubleSpinBox,
     QListWidget, QPushButton, QMessageBox, QCheckBox,
     QColorDialog, QGroupBox, QLabel, QFrame, QSplitter,
-    QComboBox, QInputDialog
+    QComboBox, QInputDialog, QWidget, QGraphicsDropShadowEffect,
+    QApplication, QSizePolicy, QAbstractItemView, QMenu, QAction
 )
-from PyQt5.QtGui import QIcon, QKeySequence, QColor, QKeyEvent
-from PyQt5.QtCore import Qt, QTimer
-import uuid
-import os, sys
-import json
-import copy
+from PyQt5.QtGui import QColor, QFont, QCursor, QPainter, QBrush, QPen, QColor, QMouseEvent, QPainterPath
+from PyQt5.QtCore import Qt, QTimer, QSize, QPropertyAnimation, QEasingCurve, QRect, QPoint, pyqtProperty, pyqtSignal, QRectF, QAbstractAnimation
 
-class ColorEdit(QPushButton):
-    """颜色选择控件"""
+# ==========================================
+# 1. 配置定义 (UI Scaling & Themes)
+# ==========================================
+
+class ScaleConfig:
+    def __init__(self, font_size, row_height, icon_size, padding, spacing):
+        self.font_size = font_size
+        self.row_height = row_height
+        self.icon_size = icon_size
+        self.padding = padding
+        self.spacing = spacing 
+
+SCALES = {
+    "标准 (Standard)": ScaleConfig(14, 38, 20, 8, 15),
+    "中号 (Medium)":   ScaleConfig(16, 48, 24, 10, 20),
+    "大号 (Large - 老人模式)": ScaleConfig(22, 64, 32, 14, 25)
+}
+
+class ThemeConfig:
+    def __init__(self, bg_main, bg_side, bg_input, text_main, text_dim, border, primary, danger, shadow):
+        self.bg_main = bg_main      
+        self.bg_side = bg_side      
+        self.bg_input = bg_input    
+        self.text_main = text_main  
+        self.text_dim = text_dim    
+        self.border = border        
+        self.primary = primary      
+        self.danger = danger        
+        self.shadow = shadow        
+
+THEMES = {
+    "深色 (Dark)": ThemeConfig(
+        bg_main="#1c1c1e", bg_side="#252526", bg_input="#3a3a3c",
+        text_main="#ffffff", text_dim="#98989d", border="#454545",
+        primary="#0A84FF", danger="#FF453A", shadow=QColor(0, 0, 0, 150)
+    ),
+    "浅色 (Light)": ThemeConfig(
+        bg_main="#ffffff", bg_side="#f2f2f7", bg_input="#ffffff",
+        text_main="#000000", text_dim="#6e6e73", border="#c6c6c8", 
+        primary="#007AFF", danger="#FF3B30", shadow=QColor(0, 0, 0, 40)
+    )
+}
+
+# ==========================================
+# 2. 全向拖拽基类
+# ==========================================
+class ResizableFramelessWindow(QDialog):
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.setWindowFlags(Qt.FramelessWindowHint | Qt.Window)
+        self.setAttribute(Qt.WA_TranslucentBackground)
+        self.setMouseTracking(True)
+        self._padding = 6
+        self._dragging = False
+        self._resizing = False
+        self._drag_pos = None
+        self._resize_edge = None
+
+    def mousePressEvent(self, event):
+        if event.button() == Qt.LeftButton:
+            edge = self._hit_test(event.pos())
+            if edge:
+                self._resizing = True
+                self._resize_edge = edge
+                event.accept()
+            elif event.y() < 60:
+                self._dragging = True
+                self._drag_pos = event.globalPos() - self.pos()
+                event.accept()
+
+    def mouseDoubleClickEvent(self, event):
+        if event.y() < 60 and event.button() == Qt.LeftButton:
+            if self.isMaximized(): self.showNormal()
+            else: self.showMaximized()
+            event.accept()
+
+    def mouseMoveEvent(self, event):
+        if self._resizing:
+            self._handle_resize(event.globalPos())
+            event.accept()
+            return
+        if self._dragging and self._drag_pos:
+            self.move(event.globalPos() - self._drag_pos)
+            event.accept()
+            return
+        edge = self._hit_test(event.pos())
+        if edge: self.setCursor(self._get_cursor(edge))
+        else: self.setCursor(Qt.ArrowCursor)
+
+    def mouseReleaseEvent(self, event):
+        self._dragging = False; self._resizing = False; self._resize_edge = None
+        self.setCursor(Qt.ArrowCursor)
+
+    def _hit_test(self, pos):
+        if self.isMaximized(): return None
+        w, h = self.width(), self.height()
+        p = self._padding
+        x, y = pos.x(), pos.y()
+        on_left = x < p; on_right = x > w - p
+        on_top = y < p; on_bottom = y > h - p
+        if on_top and on_left: return 'top_left'
+        if on_top and on_right: return 'top_right'
+        if on_bottom and on_left: return 'bottom_left'
+        if on_bottom and on_right: return 'bottom_right'
+        if on_top: return 'top'
+        if on_bottom: return 'bottom'
+        if on_left: return 'left'
+        if on_right: return 'right'
+        return None
+
+    def _get_cursor(self, edge):
+        cursors = {'top': Qt.SizeVerCursor, 'bottom': Qt.SizeVerCursor, 'left': Qt.SizeHorCursor, 'right': Qt.SizeHorCursor, 'top_left': Qt.SizeFDiagCursor, 'bottom_right': Qt.SizeFDiagCursor, 'top_right': Qt.SizeBDiagCursor, 'bottom_left': Qt.SizeBDiagCursor}
+        return cursors.get(edge, Qt.ArrowCursor)
+
+    def _handle_resize(self, global_pos):
+        rect = self.geometry()
+        x, y, w, h = rect.x(), rect.y(), rect.width(), rect.height()
+        gx, gy = global_pos.x(), global_pos.y()
+        min_w, min_h = self.minimumWidth(), self.minimumHeight()
+        
+        if 'left' in self._resize_edge:
+            delta = x - gx
+            if w + delta > min_w: x = gx; w += delta
+        elif 'right' in self._resize_edge: w = gx - x
+        
+        if 'top' in self._resize_edge:
+            delta = y - gy
+            if h + delta > min_h: y = gy; h += delta
+        elif 'bottom' in self._resize_edge: h = gy - y
+        
+        self.setGeometry(x, y, max(w, min_w), max(h, min_h))
+
+# ==========================================
+# 3. 自定义控件
+# ==========================================
+
+# --- 新增：带有悬浮阴影动画的 GroupBox ---
+class HoverGroupBox(QGroupBox):
+    def __init__(self, title, parent=None):
+        super().__init__(title, parent)
+        # 初始化阴影效果
+        self.shadow = QGraphicsDropShadowEffect(self)
+        self.shadow.setBlurRadius(0) # 初始无阴影
+        self.shadow.setOffset(0, 4)
+        self.shadow.setColor(QColor(0, 0, 0, 0)) # 初始透明
+        self.setGraphicsEffect(self.shadow)
+        
+        # 动画变量
+        self.anim = QPropertyAnimation(self.shadow, b"blurRadius")
+        self.anim.setDuration(200)
+        self.anim.setEasingCurve(QEasingCurve.OutQuad)
+        
+        # 用于主题更新的引用
+        self.current_theme_shadow_color = QColor(0,0,0,100)
+
+    def enterEvent(self, event):
+        # 鼠标进入：阴影浮现
+        self.shadow.setColor(self.current_theme_shadow_color)
+        self.anim.stop()
+        self.anim.setStartValue(self.shadow.blurRadius())
+        self.anim.setEndValue(25) # 阴影大小
+        self.anim.start()
+        super().enterEvent(event)
+
+    def leaveEvent(self, event):
+        # 鼠标离开：阴影消失
+        self.anim.stop()
+        self.anim.setStartValue(self.shadow.blurRadius())
+        self.anim.setEndValue(0)
+        self.anim.start()
+        super().leaveEvent(event)
+        
+    def set_shadow_color(self, color):
+        self.current_theme_shadow_color = color
+        # 如果当前不是悬浮状态，不立即应用颜色，防止闪烁
+        # 但如果是动画中，下次enter会用新颜色
+
+
+class CycleIconButton(QPushButton):
+    valueChanged = pyqtSignal(str)
+    def __init__(self, btn_type, options_map, current_key, parent=None):
+        super().__init__(parent)
+        self.setCursor(Qt.PointingHandCursor)
+        self.setFixedSize(40, 40)
+        self.btn_type = btn_type 
+        self.options = list(options_map.keys()) 
+        self.current_key = current_key
+        self.hovered = False
+        self.icon_color = QColor("#ffffff")
+        self.setAttribute(Qt.WA_TranslucentBackground)
+        self.setStyleSheet("background: transparent; border: none;")
+
+    def set_color(self, text_color):
+        self.icon_color = QColor(text_color)
+        self.update()
+
+    def enterEvent(self, event):
+        self.hovered = True; self.update(); super().enterEvent(event)
+    def leaveEvent(self, event):
+        self.hovered = False; self.update(); super().leaveEvent(event)
+
+    def mousePressEvent(self, event):
+        try:
+            curr_idx = self.options.index(self.current_key)
+            next_idx = (curr_idx + 1) % len(self.options)
+            self.current_key = self.options[next_idx]
+            self.valueChanged.emit(self.current_key)
+            self.update()
+        except ValueError: pass
+        super().mousePressEvent(event)
+
+    def paintEvent(self, event):
+        painter = QPainter(self)
+        painter.setRenderHint(QPainter.Antialiasing)
+        if self.hovered:
+            painter.setBrush(QColor(128, 128, 128, 50))
+            painter.setPen(Qt.NoPen)
+            painter.drawRoundedRect(self.rect(), 8, 8)
+
+        painter.setPen(Qt.NoPen); painter.setBrush(self.icon_color)
+        rect = self.rect(); c = rect.center()
+        
+        if self.btn_type == 'theme':
+            if "Light" in self.current_key or "浅色" in self.current_key:
+                painter.drawEllipse(c, 6, 6) 
+                painter.setPen(QPen(self.icon_color, 2))
+                for i in range(8):
+                    painter.save(); painter.translate(c); painter.rotate(i * 45)
+                    painter.drawLine(0, 9, 0, 11); painter.restore()
+            else:
+                path = QPainterPath(); path.addEllipse(QRectF(c.x()-6, c.y()-6, 12, 12))
+                cut = QPainterPath(); cut.addEllipse(QRectF(c.x()-2, c.y()-8, 12, 12))
+                final_path = path.subtracted(cut)
+                painter.setPen(Qt.NoPen); painter.setBrush(self.icon_color)
+                painter.save(); painter.translate(-2, 2); painter.drawPath(final_path); painter.restore()
+        elif self.btn_type == 'scale':
+            painter.setPen(self.icon_color)
+            f_small = self.font(); f_small.setPixelSize(12); f_small.setBold(True)
+            painter.setFont(f_small); painter.drawText(QRect(0, 0, 20, 40), Qt.AlignCenter, "A")
+            f_big = self.font(); f_big.setPixelSize(18); f_big.setBold(True)
+            painter.setFont(f_big); painter.drawText(QRect(18, 0, 22, 40), Qt.AlignCenter, "A")
+
+class AppleButton(QPushButton):
+    def __init__(self, text="", parent=None, is_primary=False, config=None):
+        super().__init__(text, parent)
+        self.setCursor(Qt.PointingHandCursor)
+        self.is_primary = is_primary
+        self.is_danger = (text == "删除")
+        self.current_scale = SCALES["标准 (Standard)"]
+        self.current_theme = THEMES["深色 (Dark)"]
+        self.update_style()
+
+    def set_theme_scale(self, theme, scale):
+        self.current_theme = theme; self.current_scale = scale; self.update_style()
+
+    def update_style(self):
+        cfg = self.current_scale
+        thm = self.current_theme
+        self.setMinimumHeight(cfg.row_height)
+        
+        bg_color = thm.bg_input
+        text_color = thm.text_main
+        border_color = thm.border
+        hover_bg = thm.border
+        hover_text = thm.text_main
+        hover_border = thm.border
+
+        if self.is_primary:
+            bg_color = thm.primary; text_color = "#ffffff"; border_color = thm.primary
+            hover_bg = "#409cff"; hover_text = "#ffffff"; hover_border = "#409cff"
+            
+        elif self.is_danger:
+            bg_color = thm.bg_input; text_color = thm.danger; border_color = thm.border
+            hover_bg = thm.danger; hover_text = "#ffffff"; hover_border = thm.danger
+        
+        border_style = f"1px solid {border_color}"
+
+        self.setStyleSheet(f"""
+            QPushButton {{
+                background-color: {bg_color}; color: {text_color}; border: {border_style};
+                border-radius: 8px; font-family: "Microsoft YaHei UI";
+                font-size: {cfg.font_size}px; padding: 0 {cfg.padding * 2}px; font-weight: 500;
+            }}
+            QPushButton:hover {{
+                background-color: {hover_bg}; color: {hover_text}; border: 1px solid {hover_border};
+            }}
+            QPushButton:pressed {{ padding-top: 2px; }}
+        """)
+
+class AppleColorWell(QPushButton):
+    colorChanged = pyqtSignal(str)
+    
+    PRESET_COLORS = [
+        ("红色 (Red)", "#FF3B30"), ("橙色 (Orange)", "#FF9500"), ("黄色 (Yellow)", "#FFCC00"),
+        ("绿色 (Green)", "#34C759"), ("薄荷 (Teal)", "#5AC8FA"), ("蓝色 (Blue)", "#007AFF"),
+        ("靛蓝 (Indigo)", "#5856D6"), ("紫色 (Purple)", "#AF52DE"), ("粉色 (Pink)", "#FF2D55"),
+        ("灰色 (Gray)", "#8E8E93"), ("白色 (White)", "#FFFFFF"), ("黑色 (Black)", "#000000")
+    ]
+
     def __init__(self, color="#ffffff", parent=None):
         super().__init__(parent)
         self.color = color
-        self.setText(color)
-        self.clicked.connect(self.choose_color)
-        self.update_style()
         self.setCursor(Qt.PointingHandCursor)
+        self.current_scale = SCALES["标准 (Standard)"]
+        self.current_theme = THEMES["深色 (Dark)"]
+        self.clicked.connect(self.choose_color)
+        self.setContextMenuPolicy(Qt.CustomContextMenu)
+        self.customContextMenuRequested.connect(self.show_context_menu)
+
+    def set_theme_scale(self, theme, scale):
+        self.current_theme = theme
+        self.current_scale = scale
+        self.setMinimumHeight(scale.row_height)
+        self.update()
+
+    def show_context_menu(self, pos):
+        menu = QMenu(self)
+        lbl = QAction("⚡ 快速选择颜色:", self); lbl.setEnabled(False); menu.addAction(lbl)
+        menu.addSeparator()
+
+        for name, hex_code in self.PRESET_COLORS:
+            action = QAction(name, self)
+            from PyQt5.QtGui import QPixmap, QIcon
+            pix = QPixmap(16, 16); pix.fill(QColor(hex_code))
+            action.setIcon(QIcon(pix))
+            action.triggered.connect(lambda checked, c=hex_code: self.set_preset_color(c))
+            menu.addAction(action)
+        menu.exec_(self.mapToGlobal(pos))
+
+    def set_preset_color(self, hex_code):
+        self.color = hex_code; self.update(); self.colorChanged.emit(self.color)
+
+    def paintEvent(self, event):
+        painter = QPainter(self)
+        painter.setRenderHint(QPainter.Antialiasing)
+        thm = self.current_theme; cfg = self.current_scale
+        painter.setBrush(QColor(thm.bg_input)); painter.setPen(QPen(QColor(thm.border), 1))
+        rect = self.rect(); painter.drawRoundedRect(rect.adjusted(1,1,-1,-1), 8, 8)
+        
+        r = cfg.icon_size // 2; cy = rect.height() / 2; cx = 20 + r
+        painter.setBrush(QBrush(QColor(self.color))); painter.setPen(QPen(QColor(128, 128, 128, 100), 1)) 
+        painter.drawEllipse(QPoint(int(cx), int(cy)), r, r)
+        
+        painter.setPen(QColor(thm.text_main))
+        font = self.font(); font.setFamily("Consolas"); font.setPointSize(max(12, int(cfg.font_size * 0.9)))
+        painter.setFont(font)
+        text_rect = QRect(int(cx + r + 15), 0, rect.width(), rect.height())
+        painter.drawText(text_rect, Qt.AlignLeft | Qt.AlignVCenter, self.color.upper())
 
     def choose_color(self):
-        color = QColorDialog.getColor(QColor(self.color), self, "选择颜色")
-        if color.isValid():
-            self.color = color.name()
-            self.setText(self.color)
-            self.update_style()
-            # 触发改变信号（虽然QPushButton没有textChanged，但在sync中我们会读取text）
+        dlg = QColorDialog(self); dlg.setCurrentColor(QColor(self.color))
+        if dlg.exec_():
+            c = dlg.selectedColor()
+            if c.isValid(): self.color = c.name(QColor.HexArgb) if c.alpha() < 255 else c.name(); self.update(); self.colorChanged.emit(self.color)
+    def text(self): return self.color
+    def setText(self, t): self.color = t; self.update()
 
+class IOSSwitch(QCheckBox):
+    def __init__(self, text="", parent=None):
+        super().__init__(text, parent)
+        self.setCursor(Qt.PointingHandCursor)
+        self.current_scale = SCALES["标准 (Standard)"]
+        self.current_theme = THEMES["深色 (Dark)"]
+    def set_theme_scale(self, theme, scale):
+        self.current_theme = theme; self.current_scale = scale; self.update_style()
     def update_style(self):
-        bg = QColor(self.color)
-        fg = "black" if bg.lightness() > 128 else "white"
+        cfg = self.current_scale; thm = self.current_theme
+        sw_w = int(cfg.row_height * 1.2); sw_h = int(cfg.row_height * 0.7); radius = sw_h // 2
         self.setStyleSheet(f"""
-            QPushButton {{
-                background-color: {self.color}; 
-                color: {fg}; 
-                border: 1px solid #ccc;
-                border-radius: 4px;
-                padding: 5px;
-                font-family: Consolas, monospace;
-            }}
-            QPushButton:hover {{
-                border: 1px solid #999;
-            }}
+            QCheckBox {{ spacing: 15px; color: {thm.text_main}; font-size: {cfg.font_size}px; padding: 5px; }}
+            QCheckBox::indicator {{ width: {sw_w}px; height: {sw_h}px; border-radius: {radius}px; }}
+            QCheckBox::indicator:unchecked {{ background-color: {thm.bg_input}; border: 1px solid {thm.border}; }}
+            QCheckBox::indicator:checked {{ background-color: #30D158; border: 1px solid #30D158; }}
         """)
 
-    def text(self):
-        return self.color
+# ==========================================
+# 4. 主窗口逻辑
+# ==========================================
 
-    def setText(self, text):
-        self.color = text
-        super().setText(text)
-        self.update_style()
-
-
-
-class SettingsDialog(QDialog):
+class SettingsDialog(ResizableFramelessWindow):
     def __init__(self, config_dir, current_filename, configs, apply_callback=None, parent=None):
         super().__init__(parent)
         self.config_dir = config_dir
         self.current_filename = current_filename
-        # 深拷贝配置，确保“取消”时不会影响原数据
         self.configs = copy.deepcopy(configs)
         self.apply_callback = apply_callback
         self.current_id = None
         
+        self.current_scale_name = "标准 (Standard)"
+        self.current_theme_name = "深色 (Dark)"
+        
         self.setup_ui()
         self.load_button_list()
-        
-        # 图标设置
-        if getattr(sys, 'frozen', False):
-            base_path = sys._MEIPASS
-        else:
-            base_path = os.path.dirname(os.path.abspath(__file__))
-        icon_path = os.path.join(base_path, "TouchMultiButton.ico")
-        self.setWindowIcon(QIcon(icon_path))
-        
-        # 初始选中第一个
-        if self.configs['buttons']:
-            self.button_list.setCurrentRow(0)
+        self.refresh_theme_scale()
+        if self.configs['buttons']: self.button_list.setCurrentRow(0)
 
     def setup_ui(self):
-        self.setWindowTitle("按钮配置管理")
-        self.setMinimumSize(800, 700)
-        self.resize(900, 600)
+        self.resize(1100, 780)
+        outer_layout = QVBoxLayout(self); outer_layout.setContentsMargins(6, 6, 6, 6) 
+        self.main_frame = QFrame(); self.main_frame.setObjectName("MainFrame")
+        self.shadow_effect = QGraphicsDropShadowEffect(self)
+        self.shadow_effect.setBlurRadius(20); self.shadow_effect.setOffset(0, 0)
+        self.main_frame.setGraphicsEffect(self.shadow_effect)
+        outer_layout.addWidget(self.main_frame)
         
-        # 应用全局样式
-        self.setStyleSheet("""
-            QDialog { background-color: #f0f0f0; }
-            QListWidget { 
-                border: 1px solid #ccc; 
-                border-radius: 4px;
-                background-color: white;
-                outline: none;
-            }
-            QListWidget::item { 
-                padding: 8px; 
-                border-bottom: 1px solid #eee;
-            }
-            QListWidget::item:selected { 
-                background-color: #3daee9; 
-                color: white; 
-            }
-            QLabel { color: #333; }
-            QGroupBox { 
-                border: 1px solid #ccc; 
-                border-radius: 6px; 
-                margin-top: 10px; 
-                background-color: white;
-            }
-            QGroupBox::title { 
-                subcontrol-origin: margin; 
-                left: 10px; 
-                padding: 0 5px; 
-                color: #555;
-                font-weight: bold;
-            }
-            QPushButton {
-                padding: 6px 12px;
-                border-radius: 4px;
-                background-color: #e0e0e0;
-                border: 1px solid #ccc;
-            }
-            QPushButton:hover { background-color: #d0d0d0; }
-            QPushButton:pressed { background-color: #c0c0c0; }
-        """)
+        frame_layout = QVBoxLayout(self.main_frame); frame_layout.setContentsMargins(0, 0, 0, 0); frame_layout.setSpacing(0)
+        
+        # === 标题栏 ===
+        title_bar = QFrame(); title_bar.setFixedHeight(50); title_bar.setObjectName("TitleBar")
+        tb_layout = QHBoxLayout(title_bar); tb_layout.setContentsMargins(20, 0, 20, 0)
+        self.title_lbl = QLabel("按钮配置中心"); self.title_lbl.setObjectName("TitleLabel")
+        
+        self.btn_theme_toggle = CycleIconButton('theme', THEMES, self.current_theme_name)
+        self.btn_theme_toggle.valueChanged.connect(self.on_theme_changed); self.btn_theme_toggle.setToolTip("切换颜色主题")
 
-        main_layout = QHBoxLayout(self)
-        main_layout.setContentsMargins(15, 15, 15, 15)
-        main_layout.setSpacing(15)
+        self.btn_scale_toggle = CycleIconButton('scale', SCALES, self.current_scale_name)
+        self.btn_scale_toggle.valueChanged.connect(self.on_scale_changed); self.btn_scale_toggle.setToolTip("切换界面尺寸")
+        
+        win_btns_layout = QHBoxLayout(); win_btns_layout.setSpacing(8)
+        self.btn_max = QPushButton("□"); self.btn_max.setObjectName("MaxBtn"); self.btn_max.setFixedSize(32, 32)
+        self.btn_max.setCursor(Qt.PointingHandCursor); self.btn_max.clicked.connect(self.toggle_max); self.btn_max.setToolTip("最大化/还原")
 
-        # === 左侧面板 ===
-        left_panel = QVBoxLayout()
+        close_btn = QPushButton("✕"); close_btn.setObjectName("CloseBtn"); close_btn.setFixedSize(32, 32)
+        close_btn.setCursor(Qt.PointingHandCursor); close_btn.clicked.connect(self.reject); close_btn.setToolTip("关闭")
         
-        # 配置文件管理
-        config_group = QGroupBox("配置文件")
-        config_layout = QVBoxLayout()
+        win_btns_layout.addWidget(self.btn_max); win_btns_layout.addWidget(close_btn)
         
-        self.config_combo = QComboBox()
-        # 暂时断开连接以防初始化触发
-        self.config_combo.blockSignals(True)
-        self.load_config_list()
-        self.config_combo.blockSignals(False)
-        self.config_combo.currentTextChanged.connect(self.on_config_changed)
-        config_layout.addWidget(self.config_combo)
+        tb_layout.addWidget(self.title_lbl); tb_layout.addStretch()
+        tb_layout.addWidget(self.btn_theme_toggle); tb_layout.addSpacing(10)
+        tb_layout.addWidget(self.btn_scale_toggle); tb_layout.addSpacing(15)
+        tb_layout.addLayout(win_btns_layout)
+        frame_layout.addWidget(title_bar)
         
-        cfg_btn_layout = QHBoxLayout()
-        self.new_cfg_btn = QPushButton("新建")
-        self.new_cfg_btn.clicked.connect(self.create_config)
-        self.copy_cfg_btn = QPushButton("复制")
-        self.copy_cfg_btn.clicked.connect(self.copy_config)
-        self.del_cfg_btn = QPushButton("删除")
-        self.del_cfg_btn.clicked.connect(self.delete_config)
-        cfg_btn_layout.addWidget(self.new_cfg_btn)
-        cfg_btn_layout.addWidget(self.copy_cfg_btn)
-        cfg_btn_layout.addWidget(self.del_cfg_btn)
-        config_layout.addLayout(cfg_btn_layout)
+        # === 内容区 ===
+        content_box = QHBoxLayout(); content_box.setContentsMargins(0, 0, 0, 0); content_box.setSpacing(0)
+        self.splitter = QSplitter(Qt.Horizontal); self.splitter.setHandleWidth(1)
         
-        config_group.setLayout(config_layout)
-        left_panel.addWidget(config_group)
+        # --- 左侧栏 ---
+        self.left_widget = QWidget()
+        self.left_layout = QVBoxLayout(self.left_widget); self.left_layout.setContentsMargins(15, 15, 15, 15)
+        self.lbl_cfg = QLabel("配置文件"); self.left_layout.addWidget(self.lbl_cfg)
+        self.config_combo = QComboBox(); self.config_combo.currentTextChanged.connect(self.on_config_changed)
+        self.left_layout.addWidget(self.config_combo)
         
-        # 按钮列表
-        list_label = QLabel("按钮列表")
-        list_label.setStyleSheet("font-weight: bold; font-size: 14px;")
-        left_panel.addWidget(list_label)
+        cfg_btns = QHBoxLayout()
+        self.btn_new_cfg = AppleButton("新建"); self.btn_new_cfg.clicked.connect(self.create_config)
+        self.btn_del_cfg = AppleButton("删除"); self.btn_del_cfg.clicked.connect(self.delete_config)
+        cfg_btns.addWidget(self.btn_new_cfg); cfg_btns.addWidget(self.btn_del_cfg)
+        self.left_layout.addLayout(cfg_btns)
         
-        self.button_list = QListWidget()
+        self.lbl_list = QLabel("按钮列表"); self.left_layout.addWidget(self.lbl_list)
+        self.button_list = QListWidget(); self.button_list.setVerticalScrollMode(QAbstractItemView.ScrollPerPixel)
         self.button_list.currentItemChanged.connect(self.select_button)
-        left_panel.addWidget(self.button_list)
-
-        # 操作按钮组
-        btn_group = QHBoxLayout()
-        self.new_btn = QPushButton("新建")
-        self.new_btn.clicked.connect(self.create_new_button)
-        self.new_btn.setStyleSheet("background-color: #4CAF50; color: white; border: none;")
+        self.left_layout.addWidget(self.button_list)
         
-        self.copy_btn = QPushButton("复制")
-        self.copy_btn.clicked.connect(self.copy_button)
-        self.copy_btn.setStyleSheet("background-color: #2196F3; color: white; border: none;")
+        list_btns = QHBoxLayout()
+        self.btn_add = AppleButton("＋ 新增", is_primary=True); self.btn_add.clicked.connect(self.create_new_button)
+        self.btn_copy = AppleButton("复制"); self.btn_copy.clicked.connect(self.copy_button)
+        self.btn_del = AppleButton("删除"); self.btn_del.clicked.connect(self.delete_button)
+        list_btns.addWidget(self.btn_add); list_btns.addWidget(self.btn_copy); list_btns.addWidget(self.btn_del)
+        self.left_layout.addLayout(list_btns)
         
-        self.del_btn = QPushButton("删除")
-        self.del_btn.clicked.connect(self.delete_button)
-        self.del_btn.setStyleSheet("background-color: #f44336; color: white; border: none;")
+        # --- 右侧栏 ---
+        self.right_widget = QWidget()
+        self.right_layout = QVBoxLayout(self.right_widget); self.right_layout.setContentsMargins(25, 20, 25, 20)
         
-        btn_group.addWidget(self.new_btn)
-        btn_group.addWidget(self.copy_btn)
-        btn_group.addWidget(self.del_btn)
-        left_panel.addLayout(btn_group)
+        # 1. 基本 (使用新的 HoverGroupBox)
+        self.group_basic = HoverGroupBox("基本属性") # 修改这里
+        self.form_basic = QFormLayout(); self.form_basic.setLabelAlignment(Qt.AlignRight)
         
-        # === 右侧面板 ===
-        right_panel = QVBoxLayout()
+        self.label_edit = QLineEdit(); self.label_edit.textChanged.connect(self.sync_current_data)
         
-        # 基本属性组
-        basic_group = QGroupBox("基本属性")
-        basic_layout = QFormLayout()
-        basic_layout.setSpacing(10)
-        
-        self.label = QLineEdit()
-        self.label.textChanged.connect(self.sync_current_data)
-        
-        self.fontFamily = QComboBox()
-        self.fontFamily.setEditable(True)
-        # 获取系统字体列表
-        from PyQt5.QtGui import QFontDatabase
-        font_db = QFontDatabase()
-        font_families = font_db.families()
-        self.fontFamily.addItems(font_families)
-        self.fontFamily.currentTextChanged.connect(self.sync_current_data)
-        
-        # 快捷键行（包含文本框和"按键检测"按钮）
-        shortcut_layout = QHBoxLayout()
-        self.shortcut = QLineEdit()
-        self.shortcut.setPlaceholderText("直接输入快捷键 (如: ctrl+a) 或点击按键检测录制")
-        # 使用 textChanged 信号实时同步，但设置一个防抖机制
-        self.shortcut.textChanged.connect(self.on_shortcut_changed)
-        
-        self.key_detect_btn = QPushButton("按键检测")
-        self.key_detect_btn.setCheckable(True)  # 设置为可切换按钮
-        self.key_detect_btn.clicked.connect(self.toggle_key_detection)
-        self.key_detect_btn.setStyleSheet("""
-            QPushButton {
-                padding: 4px 8px;
-                font-size: 12px;
-                background-color: #e0e0e0;
-                border: 1px solid #ccc;
-                border-radius: 4px;
-            }
-            QPushButton:checked {
-                background-color: #2196F3;
-                color: white;
-            }
-            QPushButton:hover {
-                background-color: #d0d0d0;
-            }
-            QPushButton:checked:hover {
-                background-color: #1976D2;
-            }
-        """)
-        shortcut_layout.addWidget(self.shortcut)
-        shortcut_layout.addWidget(self.key_detect_btn)
-        
-        self.position_lock = QCheckBox("锁定位置")
-        self.position_lock.stateChanged.connect(self.on_position_lock_changed)
-        self.position_lock.stateChanged.connect(self.sync_current_data)
-
-        basic_layout.addRow("按钮文字:", self.label)
-        
-        # 字体选择行（包含下拉框和"应用到全部"按钮）
         font_layout = QHBoxLayout()
-        font_layout.addWidget(self.fontFamily)
-        self.apply_font_to_all_btn = QPushButton("应用到全部")
-        self.apply_font_to_all_btn.clicked.connect(self.apply_font_to_all)
-        self.apply_font_to_all_btn.setStyleSheet("padding: 4px 8px; font-size: 12px;")
-        font_layout.addWidget(self.apply_font_to_all_btn)
-        basic_layout.addRow("文字字体:", font_layout)
+        self.font_combo = QComboBox(); self.font_combo.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
+        from PyQt5.QtGui import QFontDatabase
+        self.font_combo.addItems(QFontDatabase().families()); self.font_combo.setEditable(True)
+        self.font_combo.currentTextChanged.connect(self.sync_current_data)
+        self.btn_apply_font = AppleButton("全应用"); self.btn_apply_font.clicked.connect(self.apply_font_to_all)
+        font_layout.addWidget(self.font_combo); font_layout.addWidget(self.btn_apply_font)
         
-        basic_layout.addRow("快捷键:", shortcut_layout)
-        basic_layout.addRow("", self.position_lock)
-        basic_group.setLayout(basic_layout)
+        shortcut_layout = QHBoxLayout()
+        self.shortcut_edit = QLineEdit(); self.shortcut_edit.textChanged.connect(self.on_shortcut_changed)
+        self.btn_record = AppleButton("录制"); self.btn_record.setCheckable(True); self.btn_record.clicked.connect(self.toggle_key_detection)
+        shortcut_layout.addWidget(self.shortcut_edit); shortcut_layout.addWidget(self.btn_record)
         
-        # 外观样式组
-        style_group = QGroupBox("外观样式")
-        style_layout = QFormLayout()
+        self.chk_lock = IOSSwitch("锁定坐标位置")
+        self.chk_lock.stateChanged.connect(self.on_position_lock_changed); self.chk_lock.stateChanged.connect(self.sync_current_data)
         
-        self.color = ColorEdit()
-        self.color.clicked.connect(self.sync_current_data) # ColorEdit update triggers clicked? No, need to handle text change
-        # ColorEdit doesn't emit textChanged, but we can hook into setText or just use clicked to sync
-        # Actually, choose_color updates internal state. We can override choose_color to call sync.
-        # Simpler: connect clicked to a wrapper that waits or just rely on the fact that dialog is modal
-        # Wait, ColorEdit.choose_color is blocking. After it returns, we can sync.
-        # Let's modify ColorEdit connection below.
+        self.form_basic.addRow("名称:", self.label_edit)
+        self.form_basic.addRow("字体:", font_layout)
+        self.form_basic.addRow("热键:", shortcut_layout)
+        self.form_basic.addRow("", self.chk_lock)
+        self.group_basic.setLayout(self.form_basic)
         
-        self.textColor = ColorEdit()
-        self.borderColor = ColorEdit()
+        # 2. 样式 (使用新的 HoverGroupBox)
+        self.group_style = HoverGroupBox("外观样式") # 修改这里
+        style_box = QVBoxLayout()
         
-        self.opacity = QDoubleSpinBox()
-        self.opacity.setRange(0.1, 1.0)
-        self.opacity.setSingleStep(0.1)
-        self.opacity.valueChanged.connect(self.sync_current_data)
+        row_colors = QHBoxLayout(); row_colors.setSpacing(15)
+        v1 = QVBoxLayout(); self.lbl_c1 = QLabel("背景"); v1.addWidget(self.lbl_c1); v1.addWidget(self._make_color_well('bg'))
+        v2 = QVBoxLayout(); self.lbl_c2 = QLabel("文字"); v2.addWidget(self.lbl_c2); v2.addWidget(self._make_color_well('text'))
+        v3 = QVBoxLayout(); self.lbl_c3 = QLabel("边框"); v3.addWidget(self.lbl_c3); v3.addWidget(self._make_color_well('border'))
+        row_colors.addLayout(v1); row_colors.addLayout(v2); row_colors.addLayout(v3)
         
-        self.fontSize = QSpinBox()
-        self.fontSize.setRange(8, 200)
-        self.fontSize.valueChanged.connect(self.sync_current_data)
+        row_nums = QHBoxLayout()
+        self.spin_opacity = QDoubleSpinBox(); self.spin_opacity.setRange(0.1, 1.0); self.spin_opacity.setSingleStep(0.1); self.spin_opacity.valueChanged.connect(self.sync_current_data)
+        self.spin_size = QSpinBox(); self.spin_size.setRange(8, 300); self.spin_size.valueChanged.connect(self.sync_current_data)
+        self.lbl_op = QLabel("透明度:"); self.lbl_op.setAlignment(Qt.AlignRight | Qt.AlignVCenter)
+        self.lbl_sz = QLabel("字号:"); self.lbl_sz.setAlignment(Qt.AlignRight | Qt.AlignVCenter)
+        row_nums.addWidget(self.lbl_op); row_nums.addWidget(self.spin_opacity)
+        row_nums.addSpacing(20); row_nums.addWidget(self.lbl_sz); row_nums.addWidget(self.spin_size)
+        style_box.addLayout(row_colors); style_box.addSpacing(15); style_box.addLayout(row_nums)
+        self.group_style.setLayout(style_box)
         
-        style_layout.addRow("背景颜色:", self.color)
-        style_layout.addRow("字体颜色:", self.textColor)
-        style_layout.addRow("边框颜色:", self.borderColor)
-        style_layout.addRow("透明度:", self.opacity)
-        style_layout.addRow("字体大小:", self.fontSize)
-        style_group.setLayout(style_layout)
+        # 3. 布局 (使用新的 HoverGroupBox)
+        self.group_pos = HoverGroupBox("位置与尺寸") # 修改这里
+        layout_pos = QHBoxLayout()
+        self.spin_x = QSpinBox(); self.spin_x.setRange(0, 9999); self.spin_x.setPrefix("X: "); self.spin_x.valueChanged.connect(self.sync_current_data)
+        self.spin_y = QSpinBox(); self.spin_y.setRange(0, 9999); self.spin_y.setPrefix("Y: "); self.spin_y.valueChanged.connect(self.sync_current_data)
+        self.spin_w = QSpinBox(); self.spin_w.setRange(10, 9999); self.spin_w.setPrefix("W: "); self.spin_w.valueChanged.connect(self.sync_current_data)
+        self.spin_h = QSpinBox(); self.spin_h.setRange(10, 9999); self.spin_h.setPrefix("H: "); self.spin_h.valueChanged.connect(self.sync_current_data)
+        for sp in [self.spin_x, self.spin_y, self.spin_w, self.spin_h]: layout_pos.addWidget(sp)
+        self.group_pos.setLayout(layout_pos)
         
-        # 布局尺寸组
-        layout_group = QGroupBox("布局尺寸")
-        layout_grid = QFormLayout()
+        self.right_layout.addWidget(self.group_basic); self.right_layout.addWidget(self.group_style)
+        self.right_layout.addWidget(self.group_pos); self.right_layout.addStretch()
         
-        self.position_x = QSpinBox()
-        self.position_x.setRange(0, 3840)
-        self.position_x.setSuffix(" px")
-        self.position_x.valueChanged.connect(self.sync_current_data)
+        bot_layout = QHBoxLayout()
+        self.btn_refresh = AppleButton("立即应用"); self.btn_refresh.clicked.connect(self.on_refresh)
+        self.btn_cancel = AppleButton("取消"); self.btn_cancel.clicked.connect(self.reject)
+        self.btn_save = AppleButton("保存更改", is_primary=True); self.btn_save.clicked.connect(self.accept)
+        bot_layout.addWidget(self.btn_refresh); bot_layout.addStretch(); bot_layout.addWidget(self.btn_cancel); bot_layout.addWidget(self.btn_save)
+        self.right_layout.addLayout(bot_layout)
         
-        self.position_y = QSpinBox()
-        self.position_y.setRange(0, 2160)
-        self.position_y.setSuffix(" px")
-        self.position_y.valueChanged.connect(self.sync_current_data)
+        self.splitter.addWidget(self.left_widget); self.splitter.addWidget(self.right_widget)
+        self.splitter.setStretchFactor(0, 1); self.splitter.setStretchFactor(1, 3); self.splitter.setCollapsible(0, False)
+        content_box.addWidget(self.splitter); frame_layout.addLayout(content_box)
         
-        self.size_w = QSpinBox()
-        self.size_w.setRange(20, 1000)
-        self.size_w.setSuffix(" px")
-        self.size_w.valueChanged.connect(self.sync_current_data)
-        
-        self.size_h = QSpinBox()
-        self.size_h.setRange(20, 1000)
-        self.size_h.setSuffix(" px")
-        self.size_h.valueChanged.connect(self.sync_current_data)
-        
-        layout_grid.addRow("X 坐标:", self.position_x)
-        layout_grid.addRow("Y 坐标:", self.position_y)
-        layout_grid.addRow("宽度:", self.size_w)
-        layout_grid.addRow("高度:", self.size_h)
-        layout_group.setLayout(layout_grid)
+        self.load_config_list(); self.shortcut_timer = None
 
-        # 操作按钮组（放在布局尺寸下方）
-        action_group = QGroupBox("操作")
-        action_layout = QHBoxLayout()
+    def _make_color_well(self, type_):
+        w = AppleColorWell()
+        if type_ == 'bg': self.color_bg = w
+        elif type_ == 'text': self.color_text = w
+        elif type_ == 'border': self.color_border = w
+        w.colorChanged.connect(lambda: self.sync_current_data())
+        return w
+
+    def toggle_max(self):
+        if self.isMaximized(): self.showNormal()
+        else: self.showMaximized()
+
+    def on_scale_changed(self, text): self.current_scale_name = text; self.refresh_theme_scale()
+    def on_theme_changed(self, text): self.current_theme_name = text; self.refresh_theme_scale()
+
+    def refresh_theme_scale(self):
+        cfg = SCALES[self.current_scale_name]
+        thm = THEMES[self.current_theme_name]
         
-        self.refresh_btn = QPushButton("刷新按钮状态")
-        self.refresh_btn.clicked.connect(self.on_refresh)
-        self.refresh_btn.setStyleSheet("background-color: #2196F3; color: white; padding: 6px 12px;")
+        self.btn_theme_toggle.set_color(thm.text_main)
+        self.btn_scale_toggle.set_color(thm.text_main)
+        self.shadow_effect.setColor(thm.shadow)
         
-        self.save_btn = QPushButton("保存按钮配置")
-        self.save_btn.clicked.connect(self.accept)
-        self.save_btn.setStyleSheet("background-color: #4CAF50; color: white; padding: 6px 12px;")
+        # 更新 GroupBox 的阴影颜色引用
+        shadow_color = QColor(0, 0, 0, 120) if self.current_theme_name == "深色 (Dark)" else QColor(0, 0, 0, 40)
+        for gb in self.findChildren(HoverGroupBox):
+            gb.set_shadow_color(shadow_color)
+            
+        max_btn_hover_bg = "#454545" if self.current_theme_name == "深色 (Dark)" else "#e5e5e5"
         
-        self.cancel_btn = QPushButton("取消更改并退出")
-        self.cancel_btn.clicked.connect(self.reject)
-        self.cancel_btn.setStyleSheet("padding: 6px 12px;")
+        css = f"""
+            #MainFrame {{ background-color: {thm.bg_main}; border-radius: 12px; border: 1px solid {thm.border}; }}
+            #TitleBar {{ background-color: transparent; border-bottom: 1px solid {thm.border}; }}
+            QWidget {{ font-family: "Microsoft YaHei UI", sans-serif; font-size: {cfg.font_size}px; color: {thm.text_main}; }}
+            #TitleLabel {{ font-size: {cfg.font_size + 2}px; font-weight: bold; }}
+            QWidget {{ background-color: transparent; }}
+            
+            #CloseBtn, #MaxBtn {{ background-color: transparent; border: none; border-radius: 6px; color: {thm.text_dim}; font-family: "Segoe UI Symbol"; font-size: 16px; }}
+            #CloseBtn:hover {{ background-color: #c42b1c; color: white; }}
+            #MaxBtn:hover {{ background-color: {max_btn_hover_bg}; color: {thm.text_main}; }}
+            
+            /* === GroupBox 样式 (配合 HoverGroupBox 类) === */
+            QGroupBox {{
+                border: 1px solid {thm.border};
+                border-radius: 12px;
+                margin-top: 1.5em;
+                padding-top: 15px; 
+                background-color: {thm.bg_input}; /* 实色背景，遮挡阴影穿透 */
+            }}
+            QGroupBox::title {{
+                subcontrol-origin: margin; subcontrol-position: top left; left: 15px; padding: 0 5px;
+                color: {thm.text_dim}; font-weight: bold; font-size: {cfg.font_size}px;
+                background-color: transparent;
+            }}
+
+            QLineEdit, QSpinBox, QDoubleSpinBox {{
+                background-color: {thm.bg_input}; border: 1px solid {thm.border}; border-radius: 6px;
+                color: {thm.text_main}; padding: {cfg.padding}px; min-height: {cfg.row_height - (cfg.padding*2)}px;
+                selection-background-color: {thm.primary}; selection-color: white;
+            }}
+            QLineEdit:focus, QSpinBox:focus, QDoubleSpinBox:focus {{ border: 1px solid {thm.primary}; }}
+
+            /* === 下拉菜单美化 (ComboBox) === */
+            QComboBox {{
+                background-color: {thm.bg_input};
+                border: 1px solid {thm.border};
+                border-radius: 6px;
+                color: {thm.text_main};
+                padding: {cfg.padding}px;
+                padding-right: 30px; /* 给箭头留空间 */
+                min-height: {cfg.row_height - (cfg.padding*2)}px;
+            }}
+            QComboBox:focus {{ border: 1px solid {thm.primary}; }}
+            
+            /* 下拉箭头区域 */
+            QComboBox::drop-down {{
+                subcontrol-origin: padding;
+                subcontrol-position: top right;
+                width: 30px;
+                border-left-width: 0px;
+                border-top-right-radius: 6px;
+                border-bottom-right-radius: 6px;
+                background: transparent;
+            }}
+            /* 箭头本身 */
+            QComboBox::down-arrow {{
+                width: 12px; height: 12px;
+                image: none; /* 清除默认 */
+                border-left: 2px solid {thm.text_dim}; /* 用边框画箭头 */
+                border-bottom: 2px solid {thm.text_dim};
+                transform: rotate(-45deg); /* 旋转成向下箭头 */
+                margin-top: -3px; /* 微调位置 */
+            }}
+            QComboBox::down-arrow:on {{ /* 展开时箭头反转 */
+                transform: rotate(135deg);
+                margin-top: 3px;
+            }}
+            
+            /* 下拉弹出列表 */
+            QComboBox QAbstractItemView {{
+                background-color: {thm.bg_input};
+                color: {thm.text_main};
+                border: 1px solid {thm.border};
+                selection-background-color: {thm.primary};
+                selection-color: white;
+                outline: none;
+                border-radius: 8px;
+                padding: 4px; /* 列表整体内边距 */
+            }}
+            QComboBox QAbstractItemView::item {{
+                height: {cfg.row_height}px; /* 增加行高 */
+                padding: 4px 8px;
+                border-radius: 4px; /* 选项圆角 */
+            }}
+            
+            QMenu {{ background-color: {thm.bg_main}; border: 1px solid {thm.border}; border-radius: 10px; padding: 6px; }}
+            QMenu::item {{ background-color: transparent; padding: 8px 20px; border-radius: 6px; color: {thm.text_main}; }}
+            QMenu::item:selected {{ background-color: {thm.primary}; color: white; }}
+            QMenu::separator {{ height: 1px; background: {thm.border}; margin: 4px 10px; }}
+
+            QListWidget {{ background-color: {thm.bg_side}; border: 1px solid {thm.border}; border-radius: 8px; outline: none; color: {thm.text_main}; }}
+            QListWidget::item {{ height: {cfg.row_height + 4}px; padding-left: 10px; margin: 2px 5px; border-radius: 6px; }}
+            QListWidget::item:selected {{
+                background-color: {thm.bg_input if self.current_theme_name == "浅色 (Light)" else "#3a3a3c"};
+                color: {thm.text_main}; border: 1px solid {thm.primary}; border-left: 5px solid {thm.primary};
+            }}
+            
+            QSplitter::handle {{ background-color: {thm.border}; }}
+        """
+        self.main_frame.setStyleSheet(css)
+        self.left_widget.setStyleSheet(f"background-color: {thm.bg_side}; border-bottom-left-radius: 12px;")
+        self.right_widget.setStyleSheet(f"background-color: {thm.bg_main}; border-bottom-right-radius: 12px;")
         
-        action_layout.addWidget(self.refresh_btn)
-        action_layout.addStretch()
-        action_layout.addWidget(self.save_btn)
-        action_layout.addWidget(self.cancel_btn)
-        action_group.setLayout(action_layout)
+        self.left_layout.setSpacing(cfg.spacing); self.right_layout.setSpacing(cfg.spacing)
+        self.form_basic.setSpacing(cfg.spacing); self.form_basic.setVerticalSpacing(cfg.spacing)
         
-        # 添加到右侧
-        right_panel.addWidget(basic_group)
-        right_panel.addWidget(style_group)
-        right_panel.addWidget(layout_group)
-        right_panel.addWidget(action_group)
-        right_panel.addStretch()
-        
-        # 布局组合
-        splitter = QSplitter(Qt.Horizontal)
-        left_widget = QFrame()
-        left_widget.setLayout(left_panel)
-        right_widget = QFrame()
-        right_widget.setLayout(right_panel)
-        
-        splitter.addWidget(left_widget)
-        splitter.addWidget(right_widget)
-        splitter.setStretchFactor(0, 1)
-        splitter.setStretchFactor(1, 2)
-        
-        main_layout.addWidget(splitter)
-        
-        # 特殊处理 ColorEdit 的同步 (因为没有 textChanged 信号)
-        # 我们修改 ColorEdit 使其在改变后发射信号，或者这里我们 monkey patch
-        self.color.clicked.connect(lambda: self.sync_current_data())
-        self.textColor.clicked.connect(lambda: self.sync_current_data())
-        self.borderColor.clicked.connect(lambda: self.sync_current_data())
-        
-        # 快捷键防抖定时器
-        self.shortcut_timer = None
+        for btn in self.findChildren(AppleButton): btn.set_theme_scale(thm, cfg)
+        for well in self.findChildren(AppleColorWell): well.set_theme_scale(thm, cfg)
+        for sw in self.findChildren(IOSSwitch): sw.set_theme_scale(thm, cfg)
+        if "Large" in self.current_scale_name and self.width() < 1200: self.resize(1250, 850)
 
     def load_button_list(self):
         current_row = self.button_list.currentRow()
         self.button_list.clear()
-        for config in self.configs['buttons']:
-            self.button_list.addItem(f"{config['label']}")
-        
-        if current_row >= 0 and current_row < self.button_list.count():
-            self.button_list.setCurrentRow(current_row)
+        if not self.configs.get('buttons'): self.configs['buttons'] = []
+        for config in self.configs['buttons']: self.button_list.addItem(f"{config['label']}")
+        if self.button_list.count() > 0:
+            row = current_row if (current_row >= 0 and current_row < self.button_list.count()) else 0
+            self.button_list.setCurrentRow(row)
 
     def select_button(self, item, previous=None):
         if not item: return
         index = self.button_list.row(item)
-        if index < 0: return
-        
+        if index < 0 or index >= len(self.configs['buttons']): return
         self.current_id = self.configs['buttons'][index]['id']
         self.load_config_to_ui(self.configs['buttons'][index])
 
     def load_config_to_ui(self, config):
-        # 临时断开信号连接防止循环触发 sync (虽然 sync 是幂等的，但为了性能)
-        self.block_signals(True)
-        
-        self.label.setText(config['label'])
-        # 设置字体，确保向后兼容性（处理旧版本配置文件）
-        font_family = config.get('fontFamily', '微软雅黑')
-        # 如果字体列表中没有该字体，则添加到下拉框
-        index = self.fontFamily.findText(font_family)
-        if index >= 0:
-            self.fontFamily.setCurrentIndex(index)
-        else:
-            # 如果字体不在列表中，添加并选中
-            self.fontFamily.addItem(font_family)
-            self.fontFamily.setCurrentText(font_family)
-        self.shortcut.setText(config['shortcut'])
-        self.color.setText(config['color'])
-        self.textColor.setText(config['textColor'])
-        self.borderColor.setText(config['borderColor'])
-        self.fontSize.setValue(config['fontSize'])
-        self.position_x.setValue(config['position'][0])
-        self.position_y.setValue(config['position'][1])
-        self.size_w.setValue(config['size'][0])
-        self.size_h.setValue(config['size'][1])
-        self.opacity.setValue(config['opacity'])
-        self.position_lock.setChecked(config['position_lock'])
-        
-        # 确保按键检测按钮处于未选中状态
-        self.key_detect_btn.setChecked(False)
-        self.toggle_key_detection(False)
-        
-        self.on_position_lock_changed(config['position_lock'])
-        
-        self.block_signals(False)
+        self.block_signals_custom(True)
+        self.label_edit.setText(config.get('label', ''))
+        font = config.get('fontFamily', '微软雅黑')
+        idx = self.font_combo.findText(font)
+        if idx >= 0: self.font_combo.setCurrentIndex(idx)
+        else: self.font_combo.addItem(font); self.font_combo.setCurrentText(font)
+        self.shortcut_edit.setText(config.get('shortcut', ''))
+        self.color_bg.setText(config.get('color', '#ffffff'))
+        self.color_text.setText(config.get('textColor', '#000000'))
+        self.color_border.setText(config.get('borderColor', '#cccccc'))
+        self.spin_opacity.setValue(config.get('opacity', 1.0))
+        self.spin_size.setValue(config.get('fontSize', 14))
+        pos = config.get('position', [0, 0]); self.spin_x.setValue(pos[0]); self.spin_y.setValue(pos[1])
+        size = config.get('size', [100, 50]); self.spin_w.setValue(size[0]); self.spin_h.setValue(size[1])
+        locked = config.get('position_lock', False); self.chk_lock.setChecked(locked); self.on_position_lock_changed(locked)
+        self.block_signals_custom(False)
 
-    def on_shortcut_changed(self, text):
-        """快捷键文本框内容变化时的防抖处理"""
-        if self.shortcut_timer:
-            self.shortcut_timer.stop()
-        
-        # 设置500ms防抖延迟
-        self.shortcut_timer = QTimer()
-        self.shortcut_timer.setSingleShot(True)
-        self.shortcut_timer.timeout.connect(lambda: self.sync_current_data())
-        self.shortcut_timer.start(500)
-
-    def toggle_key_detection(self, checked):
-        """切换按键检测模式"""
-        if checked:
-            # 进入按键检测模式
-            self.shortcut.clearFocus()  # 文本框失去焦点
-            self.shortcut.setPlaceholderText("按键检测模式已激活，请按下快捷键...")
-            self.key_detect_btn.setText("停止检测")
-            # 清空当前内容，准备录制
-            self.shortcut.clear()
-        else:
-            # 退出按键检测模式
-            self.shortcut.setPlaceholderText("直接输入快捷键 (如: ctrl+a) 或点击按键检测录制")
-            self.key_detect_btn.setText("按键检测")
-
-    def keyPressEvent(self, event):
-        """全局按键事件处理"""
-        if self.key_detect_btn.isChecked():
-            # 只有在按键检测模式下才处理按键
-            key = event.key()
-            modifiers = event.modifiers()
-
-            # 忽略修饰键单独按下
-            if key in (Qt.Key_Control, Qt.Key_Shift, Qt.Key_Alt, Qt.Key_Meta):
-                return
-
-            # ESC键退出检测模式
-            if key == Qt.Key_Escape:
-                self.key_detect_btn.setChecked(False)
-                self.toggle_key_detection(False)
-                return
-
-            # 退格键清空内容
-            if key in (Qt.Key_Backspace, Qt.Key_Delete):
-                self.shortcut.clear()
-                return
-
-            # 构建快捷键字符串
-            parts = []
-            if modifiers & Qt.ControlModifier: parts.append("ctrl")
-            if modifiers & Qt.ShiftModifier: parts.append("shift")
-            if modifiers & Qt.AltModifier: parts.append("alt")
-            if modifiers & Qt.MetaModifier: parts.append("windows")
-
-            key_text = QKeySequence(key).toString().lower()
-            if key_text:
-                parts.append(key_text)
-
-            if parts:
-                self.shortcut.setText("+".join(parts))
-                # 同步数据到配置
-                self.sync_current_data()
-                # 自动退出检测模式
-                self.key_detect_btn.setChecked(False)
-                self.toggle_key_detection(False)
-            
-            event.accept()
-            return
-            
-        super().keyPressEvent(event)
-
-    def block_signals(self, block):
-        widgets = [
-            self.label, self.fontFamily, self.shortcut, self.fontSize, 
-            self.position_x, self.position_y, self.size_w, self.size_h, 
-            self.opacity, self.position_lock
-        ]
-        for w in widgets:
-            w.blockSignals(block)
+    def block_signals_custom(self, block):
+        for w in [self.label_edit, self.font_combo, self.shortcut_edit, self.color_bg, self.color_text, self.color_border, self.spin_opacity, self.spin_size, self.spin_x, self.spin_y, self.spin_w, self.spin_h, self.chk_lock]: w.blockSignals(block)
 
     def sync_current_data(self):
-        """实时将表单数据同步到内存配置中"""
-        if not self.current_id:
-            return
-            
-        index = next((i for i, btn in enumerate(self.configs['buttons'])
-                      if btn['id'] == self.current_id), None)
-        
+        if not self.current_id: return
+        index = next((i for i, b in enumerate(self.configs['buttons']) if b['id'] == self.current_id), None)
         if index is not None:
-            # 确保字体字段正确保存，即使为空字符串也要保存
-            font_family = self.fontFamily.currentText().strip()
-            if not font_family:
-                font_family = "微软雅黑"  # 默认字体
-                
             self.configs['buttons'][index].update({
-                "label": self.label.text(),
-                "fontFamily": font_family,
-                "shortcut": self.shortcut.text(),
-                "position": [self.position_x.value(), self.position_y.value()],
-                "size": [self.size_w.value(), self.size_h.value()],
-                "color": self.color.text(),
-                "opacity": self.opacity.value(),
-                "fontSize": self.fontSize.value(),
-                "borderColor": self.borderColor.text(),
-                "textColor": self.textColor.text(),
-                'position_lock': self.position_lock.isChecked()
+                "label": self.label_edit.text(), "fontFamily": self.font_combo.currentText(), "shortcut": self.shortcut_edit.text(),
+                "color": self.color_bg.text(), "textColor": self.color_text.text(), "borderColor": self.color_border.text(),
+                "opacity": self.spin_opacity.value(), "fontSize": self.spin_size.value(),
+                "position": [self.spin_x.value(), self.spin_y.value()], "size": [self.spin_w.value(), self.spin_h.value()],
+                "position_lock": self.chk_lock.isChecked()
             })
-            # 更新列表项显示（如果标题变了）
             item = self.button_list.item(index)
-            if item:
-                item.setText(self.label.text())
+            if item: item.setText(self.label_edit.text())
+
+    def on_shortcut_changed(self, text):
+        if self.shortcut_timer: self.shortcut_timer.stop()
+        self.shortcut_timer = QTimer(); self.shortcut_timer.setSingleShot(True)
+        self.shortcut_timer.timeout.connect(lambda: self.sync_current_data()); self.shortcut_timer.start(500)
+
+    def toggle_key_detection(self, checked):
+        if checked:
+            self.shortcut_edit.clearFocus(); self.shortcut_edit.setPlaceholderText("按下按键...")
+            self.shortcut_edit.clear(); self.btn_record.setText("停止")
+        else:
+            self.shortcut_edit.setPlaceholderText("Ctrl+C"); self.btn_record.setText("录制")
+
+    def keyPressEvent(self, event):
+        if self.btn_record.isChecked():
+            key = event.key()
+            if key in (Qt.Key_Escape,): self.btn_record.setChecked(False); self.toggle_key_detection(False); return
+            from PyQt5.QtGui import QKeySequence
+            if key not in (Qt.Key_Control, Qt.Key_Shift, Qt.Key_Alt, Qt.Key_Meta):
+                seq = QKeySequence(event.modifiers() | key); self.shortcut_edit.setText(seq.toString().lower())
+                self.sync_current_data(); self.btn_record.setChecked(False); self.toggle_key_detection(False)
+            return
+        super().keyPressEvent(event)
 
     def on_position_lock_changed(self, state):
         locked = (state == Qt.Checked) if isinstance(state, int) else state
-        self.position_x.setEnabled(not locked)
-        self.position_y.setEnabled(not locked)
-
-    def create_new_button(self):
-        new_config = {
-            "id": str(uuid.uuid4()),
-            "label": "新按钮",
-            "fontFamily": "微软雅黑",
-            "shortcut": "",
-            "position": [200, 200],
-            "size": [150, 100],
-            "opacity": 0.8,
-            "color": "#2196F3",
-            "textColor": "#ffffff",
-            "borderColor": "#1976D2",
-            "fontSize": 20,
-            'position_lock': False
-        }
-        self.configs['buttons'].append(new_config)
-        self.load_button_list()
-        self.button_list.setCurrentRow(len(self.configs['buttons']) - 1)
-
-    def copy_button(self):
-        """复制当前选中的按钮"""
-        if not self.current_id:
-            QMessageBox.information(self, "提示", "请先选择一个要复制的按钮")
-            return
-            
-        # 找到当前选中的按钮索引
-        current_index = next((i for i, btn in enumerate(self.configs['buttons'])
-                             if btn['id'] == self.current_id), None)
-        if current_index is None:
-            return
-            
-        # 获取当前按钮配置
-        current_button = self.configs['buttons'][current_index]
-        
-        # 创建新按钮配置（深拷贝）
-        new_button = copy.deepcopy(current_button)
-        
-        # 生成新的唯一ID
-        new_button['id'] = str(uuid.uuid4())
-        
-        # 修改标签名，添加"副本"后缀
-        original_label = new_button['label']
-        if not original_label.endswith('副本'):
-            new_button['label'] = f"{original_label}副本"
-        else:
-            # 如果已经是副本，则添加数字后缀
-            import re
-            match = re.match(r'(.*副本)(\d*)$', original_label)
-            if match:
-                base_name = match.group(1)
-                num_suffix = match.group(2)
-                if num_suffix:
-                    new_num = int(num_suffix) + 1
-                    new_button['label'] = f"{base_name}{new_num}"
-                else:
-                    new_button['label'] = f"{base_name}2"
-            else:
-                new_button['label'] = f"{original_label}2"
-        
-        # 轻微偏移位置，避免完全重叠
-        new_button['position'][0] += 20
-        new_button['position'][1] += 20
-        
-        # 添加到按钮列表
-        self.configs['buttons'].append(new_button)
-        
-        # 刷新列表并选中新按钮
-        self.load_button_list()
-        new_index = len(self.configs['buttons']) - 1
-        self.button_list.setCurrentRow(new_index)
-        
-        QMessageBox.information(self, "复制成功", f"已成功复制按钮 '{original_label}'")
-
-    def delete_button(self):
-        if not self.current_id: return
-        
-        if len(self.configs['buttons']) <= 1:
-            QMessageBox.warning(self, "警告", "必须至少保留一个按钮")
-            return
-
-        reply = QMessageBox.question(self, '确认删除', '确定要删除这个按钮吗？',
-                                   QMessageBox.Yes | QMessageBox.No)
-        
-        if reply == QMessageBox.Yes:
-            index = next(i for i, btn in enumerate(self.configs['buttons'])
-                         if btn['id'] == self.current_id)
-            del self.configs['buttons'][index]
-            self.current_id = None
-            self.load_button_list()
-            # 选中上一个
-            new_index = min(index, len(self.configs['buttons']) - 1)
-            self.button_list.setCurrentRow(new_index)
+        self.spin_x.setEnabled(not locked); self.spin_y.setEnabled(not locked)
 
     def load_config_list(self):
-        self.config_combo.blockSignals(True)
-        self.config_combo.clear()
+        self.config_combo.blockSignals(True); self.config_combo.clear()
+        if not os.path.exists(self.config_dir): os.makedirs(self.config_dir)
         files = [f for f in os.listdir(self.config_dir) if f.endswith('.json') and f != 'preferences.json']
-        if not files:
-            files = ['default.json']
+        if not files: files = ['default.json']
         self.config_combo.addItems(files)
-        
-        index = self.config_combo.findText(self.current_filename)
-        if index >= 0:
-            self.config_combo.setCurrentIndex(index)
+        idx = self.config_combo.findText(self.current_filename); 
+        if idx >= 0: self.config_combo.setCurrentIndex(idx)
         self.config_combo.blockSignals(False)
 
     def on_config_changed(self, filename):
-        if not filename or filename == self.current_filename:
-            return
-            
+        if not filename: return
         path = os.path.join(self.config_dir, filename)
         if os.path.exists(path):
             try:
-                with open(path, 'r', encoding='utf-8') as f:
-                    new_configs = json.load(f)
-                
-                self.configs = new_configs
-                self.current_filename = filename
-                self.current_id = None
-                self.load_button_list()
-                if self.configs['buttons']:
-                    self.button_list.setCurrentRow(0)
-            except Exception as e:
-                QMessageBox.warning(self, "错误", f"加载配置文件失败: {e}")
-                index = self.config_combo.findText(self.current_filename)
-                self.config_combo.blockSignals(True)
-                self.config_combo.setCurrentIndex(index)
-                self.config_combo.blockSignals(False)
+                with open(path, 'r', encoding='utf-8') as f: self.configs = json.load(f)
+                self.current_filename = filename; self.current_id = None; self.load_button_list()
+            except: pass
 
     def create_config(self):
-        name, ok = QInputDialog.getText(self, "新建配置", "请输入配置文件名(不含.json):")
+        name, ok = QInputDialog.getText(self, "新建", "文件名:")
         if ok and name:
-            filename = name if name.endswith('.json') else f"{name}.json"
-            path = os.path.join(self.config_dir, filename)
-            if os.path.exists(path):
-                QMessageBox.warning(self, "错误", "文件已存在")
-                return
-            
-            empty_config = {"buttons": []}
-            try:
-                with open(path, 'w', encoding='utf-8') as f:
-                    json.dump(empty_config, f, indent=2)
-                self.load_config_list()
-                index = self.config_combo.findText(filename)
-                if index >= 0:
-                    self.config_combo.setCurrentIndex(index)
-            except Exception as e:
-                QMessageBox.warning(self, "错误", f"创建文件失败: {e}")
-
-    def copy_config(self):
-        """复制当前配置文件"""
-        current_filename = self.config_combo.currentText()
-        if not current_filename:
-            return
-            
-        # 获取新文件名
-        name, ok = QInputDialog.getText(self, "复制配置", "请输入新配置文件名(不含.json):")
-        if not ok or not name:
-            return
-            
-        new_filename = name if name.endswith('.json') else f"{name}.json"
-        new_path = os.path.join(self.config_dir, new_filename)
-        
-        # 检查文件是否已存在
-        if os.path.exists(new_path):
-            QMessageBox.warning(self, "错误", "文件已存在")
-            return
-            
-        # 复制配置文件
-        current_path = os.path.join(self.config_dir, current_filename)
-        try:
-            # 读取当前配置文件
-            with open(current_path, 'r', encoding='utf-8') as f:
-                config_data = json.load(f)
-            
-            # 写入新文件
-            with open(new_path, 'w', encoding='utf-8') as f:
-                json.dump(config_data, f, indent=2, ensure_ascii=False)
-            
-            # 更新配置文件列表
-            self.load_config_list()
-            
-            # 切换到新文件
-            index = self.config_combo.findText(new_filename)
-            if index >= 0:
-                self.config_combo.setCurrentIndex(index)
-                
-            QMessageBox.information(self, "复制成功", f"配置文件已成功复制为 {new_filename}")
-            
-        except Exception as e:
-            QMessageBox.warning(self, "错误", f"复制文件失败: {e}")
+            fname = name if name.endswith('.json') else f"{name}.json"
+            with open(os.path.join(self.config_dir, fname), 'w') as f: json.dump({"buttons": []}, f)
+            self.load_config_list(); self.config_combo.setCurrentText(fname)
 
     def delete_config(self):
-        if self.config_combo.count() <= 1:
-            QMessageBox.warning(self, "警告", "至少保留一个配置文件")
-            return
-            
-        filename = self.config_combo.currentText()
-        reply = QMessageBox.question(self, "确认删除", f"确定要删除配置文件 {filename} 吗？",
-                                   QMessageBox.Yes | QMessageBox.No)
-        
-        if reply == QMessageBox.Yes:
-            path = os.path.join(self.config_dir, filename)
-            try:
-                os.remove(path)
-                # 重新加载列表，并切换到第一个文件
-                self.config_combo.blockSignals(True)
-                self.config_combo.clear()
-                files = [f for f in os.listdir(self.config_dir) if f.endswith('.json')]
-                if not files:
-                    # 极端情况：删完了
-                    files = ['default.json']
-                    with open(os.path.join(self.config_dir, 'default.json'), 'w') as f:
-                        json.dump({"buttons": []}, f)
-                        
-                self.config_combo.addItems(files)
-                self.config_combo.setCurrentIndex(0)
-                self.config_combo.blockSignals(False)
-                
-                # 加载选中的文件
-                self.on_config_changed(self.config_combo.currentText())
-                
-            except Exception as e:
-                QMessageBox.warning(self, "错误", f"删除文件失败: {e}")
+        if self.config_combo.count() <= 1: return
+        fname = self.config_combo.currentText()
+        if QMessageBox.question(self, "删除", f"删除 {fname}?") == QMessageBox.Yes:
+            os.remove(os.path.join(self.config_dir, fname))
+            self.load_config_list(); self.on_config_changed(self.config_combo.currentText())
+
+    def create_new_button(self):
+        new_btn = {
+            "id": str(uuid.uuid4()), "label": "新按钮", "position": [100, 100], "size": [120, 60],
+            "color": "#0A84FF", "textColor": "#ffffff", "borderColor": "#0071e3", "opacity": 0.9, "fontSize": 14,
+            "position_lock": False, "fontFamily": "Microsoft YaHei UI"
+        }
+        self.configs['buttons'].append(new_btn); self.load_button_list(); self.button_list.setCurrentRow(len(self.configs['buttons'])-1)
+
+    def copy_button(self):
+        if not self.current_id: return
+        idx = next((i for i, b in enumerate(self.configs['buttons']) if b['id'] == self.current_id), None)
+        if idx is not None:
+            new_btn = copy.deepcopy(self.configs['buttons'][idx]); new_btn['id'] = str(uuid.uuid4()); new_btn['label'] += " 副本"
+            new_btn['position'][0] += 20; new_btn['position'][1] += 20
+            self.configs['buttons'].append(new_btn); self.load_button_list(); self.button_list.setCurrentRow(len(self.configs['buttons'])-1)
+
+    def delete_button(self):
+        if not self.current_id: return
+        idx = next((i for i, b in enumerate(self.configs['buttons']) if b['id'] == self.current_id), None)
+        if idx is not None:
+            if QMessageBox.question(self, "删除", "确认删除?") == QMessageBox.Yes:
+                del self.configs['buttons'][idx]; self.current_id = None; self.load_button_list()
 
     def apply_font_to_all(self):
-        """将当前选择的字体应用到所有按钮"""
-        if not self.configs['buttons']:
-            QMessageBox.information(self, "提示", "当前没有按钮配置")
-            return
-            
-        current_font = self.fontFamily.currentText().strip()
-        if not current_font:
-            QMessageBox.warning(self, "警告", "请先选择一个字体")
-            return
-            
-        reply = QMessageBox.question(self, "确认操作", 
-                                   f"确定要将字体 '{current_font}' 应用到所有 {len(self.configs['buttons'])} 个按钮吗？",
-                                   QMessageBox.Yes | QMessageBox.No)
-        
-        if reply == QMessageBox.Yes:
-            # 更新所有按钮的字体
-            for button in self.configs['buttons']:
-                button['fontFamily'] = current_font
-            
-            # 如果当前有选中的按钮，刷新UI显示
-            if self.current_id:
-                index = next((i for i, btn in enumerate(self.configs['buttons']) 
-                            if btn['id'] == self.current_id), None)
-                if index is not None:
-                    self.load_config_to_ui(self.configs['buttons'][index])
-            
-            QMessageBox.information(self, "操作完成", f"已成功将字体 '{current_font}' 应用到所有 {len(self.configs['buttons'])} 个按钮")
+        font = self.font_combo.currentText()
+        for b in self.configs['buttons']: b['fontFamily'] = font
+        self.sync_current_data(); QMessageBox.information(self, "成功", "已应用")
 
     def on_refresh(self):
-        if self.apply_callback:
-            self.apply_callback(self.configs)
+        if self.apply_callback: self.apply_callback(self.configs)
 
-    def get_values(self):
-        return self.current_filename, self.configs
-
+    def get_values(self): return self.current_filename, self.configs
